@@ -128,6 +128,10 @@ export function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
+function codexCommand(cwd) {
+  return ['codex', '-C', cwd, '-c', `projects={${JSON.stringify(cwd)}={trust_level="trusted"}}`];
+}
+
 function worktrees(cwd) {
   const text = run('git', ['worktree', 'list', '--porcelain', '-z'], cwd);
   return text.split('\0\0').filter(Boolean).map((record) => {
@@ -166,7 +170,8 @@ async function launchIssue(reference, agent = 'codex') {
   const pane = created.result?.root_pane?.pane_id;
   const path = created.result?.worktree?.path;
   if (!created.result?.workspace?.workspace_id || !pane || !path) throw new Error('Herdr did not return the created workspace and pane.');
-  const command = [agent, ...(agent === 'codex' ? ['-C', path] : []), issuePrompt(issue)];
+  const command = agent === 'codex' ? codexCommand(path) : ['claude'];
+  command.push(issuePrompt(issue));
   herdr('pane', 'run', pane, `cd ${shellQuote(path)} && ${command.map(shellQuote).join(' ')}`);
   console.log(`Created ${identifier}: ${label}\n${agent === 'codex' ? 'Codex' : 'Claude'} started. Setup continues in the background.`);
 }
@@ -177,7 +182,7 @@ async function startAgent() {
   const pane = process.env.HERDR_PANE_ID;
   const cwd = process.env.HERDR_WORKTREE;
   if (!pane || !cwd) throw new Error('start-agent must run as the final worktree-setup step.');
-  const args = ['codex', '-C', cwd];
+  const args = codexCommand(cwd);
   herdr('pane', 'run', pane, args.map(shellQuote).join(' '));
 }
 

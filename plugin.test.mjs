@@ -124,7 +124,7 @@ test('launch creates a background worktree and immediately starts Codex with the
   const calls = f.calls();
   const create = calls.find((args) => args[0] === 'worktree' && args[1] === 'create');
   assert.deepEqual(create, ['worktree', 'create', '--cwd', f.repo, '--branch', 'linear/eng-1234-fix-domain-validation', '--base', 'origin/develop', '--label', 'Fix "domain" validation', '--no-focus']);
-  assert.deepEqual(calls.at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['codex', '-C', f.repo, issuePrompt({ ...issue, title: 'Fix "domain" validation', comments: [] })].map(shellQuote).join(' ')}`]);
+  assert.deepEqual(calls.at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['codex', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`, issuePrompt({ ...issue, title: 'Fix "domain" validation', comments: [] })].map(shellQuote).join(' ')}`]);
   assert.equal(calls.some((args) => args.includes('--focus') || args.includes('focus')), false);
 });
 
@@ -190,7 +190,7 @@ test('ordinary worktrees keep their unprompted Codex startup', (t) => {
   const f = fixture(t, { status: 401, env: { LINEAR_API_KEY: '' } });
   const result = f.run(['start-agent'], { HERDR_PANE_ID: 'w2:p1', HERDR_WORKTREE: f.repo, HERDR_BRANCH: 'my-feature' });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.calls(), [['pane', 'run', 'w2:p1', ['codex', '-C', f.repo].map(shellQuote).join(' ')]]);
+  assert.deepEqual(f.calls(), [['pane', 'run', 'w2:p1', ['codex', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`].map(shellQuote).join(' ')]]);
 });
 
 test('Linear setup callback no longer needs to fetch the issue', (t) => {
