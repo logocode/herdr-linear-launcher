@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-const pluginId = 'harrison.linear-launcher';
+const pluginId = 'logocode.linear-launcher';
 const scriptPath = fileURLToPath(import.meta.url);
 const agents = ['codex', 'claude'];
 

@@ -1,6 +1,6 @@
-id = "harrison.linear-launcher"
+id = "logocode.linear-launcher"
 name = "Linear Launcher"
-version = "0.1.0"
+version = "0.1.1"
 min_herdr_version = "0.9.0"
 description = "Paste a Linear issue link to start Codex or Claude in a background worktree"
 platforms = ["macos", "linux"]
