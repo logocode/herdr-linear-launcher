@@ -1,6 +1,6 @@
 id = "logocode.linear-launcher"
 name = "Linear Launcher"
-version = "0.1.2"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
 description = "Paste a Linear issue link to start Codex or Claude in a background worktree"
 platforms = ["macos", "linux"]
@@ -16,5 +16,5 @@ id = "form"
 title = "Linear Launcher"
 placement = "popup"
 width = 68
-height = 14
+height = 22
 command = ["node", "plugin.mjs", "form"]

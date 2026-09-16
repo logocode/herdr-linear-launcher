@@ -31,21 +31,27 @@ function fixture(t, options = {}) {
   writeFileSync(binary, `#!${process.execPath}\nimport('node:fs').then(fs => {
     const args = process.argv.slice(2);
     fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
+    if (${Boolean(options.startFailure)} && args[0] === 'agent' && args[1] === 'start') { console.error('Agent did not become ready'); process.exit(1); }
     if (args[0] === 'plugin' && args[1] === 'config-dir') console.log(${JSON.stringify(config)});
     else if (args[0] === 'worktree' && args[1] === 'create') console.log(JSON.stringify({ result: { workspace: { workspace_id: 'w2' }, root_pane: { pane_id: 'w2:p1' }, worktree: { path: ${JSON.stringify(repo)} } } }));
     else console.log('{}');
   });\n`);
   chmodSync(binary, 0o755);
   const preload = join(root, 'fetch.mjs');
-  writeFileSync(preload, `globalThis.fetch = async (url, options) => {
+  writeFileSync(preload, `if (process.env.HERDR_TEST_TTY) {
+    process.stdin.isTTY = true;
+    process.stdin.setRawMode = () => {};
+    process.stdout.columns = 68;
+  }
+  globalThis.fetch = async (url, options) => {
     if (url !== 'https://api.linear.app/graphql') throw new Error('Unexpected network request');
     return new Response(JSON.stringify(${JSON.stringify(options.payload || { data: { issue: options.issue || issue } })}), {status: ${options.status || 200}});
   };\n`);
   const env = { ...process.env, HERDR_BIN_PATH: binary, HERDR_PLUGIN_CONTEXT_JSON: '{}', LINEAR_API_KEY: 'fixture', ...options.env };
   return {
     root, repo, config,
-    run(args, overrides = {}) {
-      return spawnSync(process.execPath, ['--import', preload, script, ...args], { cwd: repo, env: { ...env, ...overrides }, encoding: 'utf8' });
+    run(args, overrides = {}, input) {
+      return spawnSync(process.execPath, ['--import', preload, script, ...args], { cwd: repo, env: { ...env, ...overrides }, input, encoding: 'utf8', timeout: 10000 });
     },
     calls() { return existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) : []; },
   };
@@ -198,4 +204,110 @@ test('Linear setup callback no longer needs to fetch the issue', (t) => {
   const result = f.run(['start-agent'], { HERDR_PANE_ID: 'w2:p1', HERDR_WORKTREE: f.repo, HERDR_BRANCH: 'linear/eng-1234-test' });
   assert.equal(result.status, 0);
   assert.equal(f.calls().length, 0);
+});
+
+test('plan prompt asks for approval before implementation and includes user context', () => {
+  const prompt = issuePrompt({ ...issue, comments: [] }, 'plan', 'Focus on the API.\nKeep the UI unchanged.');
+  assert.match(prompt, /^Plan the Linear issue/);
+  assert.match(prompt, /Do not implement changes until the user approves/);
+  assert.doesNotMatch(prompt, /Start inspecting and editing|run appropriate verification/);
+  assert.match(prompt, /## Additional context from the user\nFocus on the API.\nKeep the UI unchanged\.$/);
+  assert.doesNotMatch(issuePrompt({ ...issue, comments: [] }, 'normal', '  '), /Additional context/);
+});
+
+test('Codex plan mode starts immediately and submits the complete prompt only after readiness', (t) => {
+  const f = fixture(t);
+  const context = "Use O'Reilly's case.\n$(touch must-not-run)";
+  const result = f.run(['launch', issue.url, 'codex', 'plan', context]);
+  assert.equal(result.status, 0, result.stderr);
+  const calls = f.calls();
+  assert.deepEqual(calls.slice(-2), [
+    ['agent', 'start', 'linear-eng-1234', '--kind', 'codex', '--pane', 'w2:p1', '--timeout', '30000', '--', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`],
+    ['agent', 'prompt', 'w2:p1', `/plan ${issuePrompt({ ...issue, comments: [] }, 'plan', context)}`],
+  ]);
+  assert.equal(calls.at(-3)[1], 'create');
+  assert.equal(calls.some((args) => args.includes('--focus')), false);
+});
+
+test('failed Codex readiness never sends the issue text to a shell', (t) => {
+  const f = fixture(t, { startFailure: true });
+  const result = f.run(['launch', issue.url, 'codex', 'plan', 'Extra context']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Agent did not become ready/);
+  assert.equal(f.calls().at(-1)[1], 'start');
+  assert.equal(f.calls().some((args) => args[1] === 'prompt'), false);
+});
+
+test('Claude plan mode uses its native permission mode with user context', (t) => {
+  const f = fixture(t);
+  const context = 'Keep the existing API.\nCheck both clients.';
+  const result = f.run(['launch', issue.url, 'claude', 'plan', context]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--permission-mode', 'plan', issuePrompt({ ...issue, comments: [] }, 'plan', context)].map(shellQuote).join(' ')}`]);
+});
+
+test('both agents receive additional context in normal mode without enabling plan mode', (t) => {
+  for (const agent of ['codex', 'claude']) {
+    const f = fixture(t);
+    const context = "Keep O'Reilly's example.\nCheck the API.";
+    const result = f.run(['launch', issue.url, agent, 'normal', context]);
+    assert.equal(result.status, 0, result.stderr);
+    const command = f.calls().at(-1)[3];
+    assert.ok(command.includes(shellQuote(issuePrompt({ ...issue, comments: [] }, 'normal', context))));
+    assert.ok(!command.includes('--permission-mode'));
+    assert.ok(!command.includes('/plan '));
+  }
+});
+
+test('invalid modes are rejected before accessing Linear or creating a worktree', (t) => {
+  const f = fixture(t);
+  const result = f.run(['launch', issue.url, 'codex', 'other']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Choose normal or plan/);
+  assert.deepEqual(f.calls(), []);
+});
+
+test('modal defaults to Codex normal mode and accepts an empty context', (t) => {
+  const f = fixture(t);
+  const result = f.run(['form'], { HERDR_TEST_TTY: '1' }, 'ENG-1234\x13');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Additional context \(optional\)/);
+  assert.equal(f.calls().at(-1)[1], 'run');
+  assert.ok(f.calls().at(-1)[3].includes("'codex'"));
+  assert.ok(!f.calls().at(-1)[3].includes('Additional context from the user'));
+});
+
+test('modal selects agent and plan mode and preserves pasted multiline context', (t) => {
+  const f = fixture(t);
+  const context = "Keep O'Reilly's API.\n\nCheck $(touch must-not-run) and café.";
+  const input = `ENG-1234\t\x1b[C\t \t\x1b[200~${context}\x1b[201~\t\r`;
+  const result = f.run(['form'], { HERDR_TEST_TTY: '1' }, input);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--permission-mode', 'plan', issuePrompt({ ...issue, comments: [] }, 'plan', context)].map(shellQuote).join(' ')}`]);
+});
+
+test('modal retains fields when navigating backward and supports editing context', (t) => {
+  const f = fixture(t);
+  const input = 'ENG-1234\t\t\tFirst\rSecnd\x1b[D\x1b[Do\x1b[F\x1b[Z\x1b[C\t\x13';
+  const result = f.run(['form'], { HERDR_TEST_TTY: '1' }, input);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(f.calls().at(-1)[1], 'prompt');
+  assert.ok(f.calls().at(-1)[3].endsWith('First\nSecond'));
+});
+
+test('Escape closes the modal from every field without launching', (t) => {
+  for (let field = 0; field < 5; field++) {
+    const f = fixture(t);
+    const result = f.run(['form'], { HERDR_TEST_TTY: '1' }, 'ENG-1234' + '\t'.repeat(field) + '\x1b');
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(f.calls(), []);
+  }
+});
+
+test('modal validates the issue before launch and can recover without losing context', (t) => {
+  const f = fixture(t);
+  const result = f.run(['form'], { HERDR_TEST_TTY: '1' }, 'bad\t\t\tKeep this\x13\x15ENG-1234\x13');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Paste a Linear issue URL/);
+  assert.ok(f.calls().at(-1)[3].includes('Keep this'));
 });
