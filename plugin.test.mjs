@@ -150,7 +150,7 @@ test('launch creates a background worktree and immediately starts Codex with the
   const calls = f.calls();
   const create = calls.find((args) => args[0] === 'worktree' && args[1] === 'create');
   assert.deepEqual(create, ['worktree', 'create', '--cwd', f.repo, '--branch', 'linear/eng-1234-fix-domain-validation', '--base', 'origin/main', '--label', 'Fix "domain" validation', '--no-focus']);
-  assert.deepEqual(calls.at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['codex', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`, issuePrompt({ ...issue, title: 'Fix "domain" validation', comments: [] })].map(shellQuote).join(' ')}`]);
+  assert.deepEqual(calls.at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['codex', '--dangerously-bypass-approvals-and-sandbox', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`, issuePrompt({ ...issue, title: 'Fix "domain" validation', comments: [] })].map(shellQuote).join(' ')}`]);
   assert.equal(calls.some((args) => args.includes('--focus') || args.includes('focus')), false);
 });
 
@@ -158,7 +158,7 @@ test('Claude receives the same initial prompt in the new worktree', (t) => {
   const f = fixture(t);
   const result = f.run(['launch', issue.url, 'claude']);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', issuePrompt({ ...issue, comments: [] })].map(shellQuote).join(' ')}`]);
+  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--dangerously-skip-permissions', issuePrompt({ ...issue, comments: [] })].map(shellQuote).join(' ')}`]);
 });
 
 test('unsupported agents are rejected before creating a worktree', (t) => {
@@ -216,7 +216,7 @@ test('ordinary worktrees keep their unprompted Codex startup', (t) => {
   const f = fixture(t, { status: 401, env: { LINEAR_API_KEY: '' } });
   const result = f.run(['start-agent'], { HERDR_PANE_ID: 'w2:p1', HERDR_WORKTREE: f.repo, HERDR_BRANCH: 'my-feature' });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.calls(), [['pane', 'run', 'w2:p1', ['codex', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`].map(shellQuote).join(' ')]]);
+  assert.deepEqual(f.calls(), [['pane', 'run', 'w2:p1', ['codex', '--dangerously-bypass-approvals-and-sandbox', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`].map(shellQuote).join(' ')]]);
 });
 
 test('Linear setup callback no longer needs to fetch the issue', (t) => {
@@ -242,7 +242,7 @@ test('Codex plan mode starts immediately and submits the complete prompt only af
   assert.equal(result.status, 0, result.stderr);
   const calls = f.calls();
   assert.deepEqual(calls.slice(-2), [
-    ['agent', 'start', 'linear-eng-1234', '--kind', 'codex', '--pane', 'w2:p1', '--timeout', '30000', '--', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`],
+    ['agent', 'start', 'linear-eng-1234', '--kind', 'codex', '--pane', 'w2:p1', '--timeout', '30000', '--', '--dangerously-bypass-approvals-and-sandbox', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`],
     ['agent', 'prompt', 'w2:p1', `/plan ${issuePrompt({ ...issue, comments: [] }, 'plan', context)}`],
   ]);
   assert.equal(calls.at(-3)[1], 'create');
@@ -263,7 +263,7 @@ test('Claude plan mode uses its native permission mode with user context', (t) =
   const context = 'Keep the existing API.\nCheck both clients.';
   const result = f.run(['launch', issue.url, 'claude', 'plan', context]);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--permission-mode', 'plan', issuePrompt({ ...issue, comments: [] }, 'plan', context)].map(shellQuote).join(' ')}`]);
+  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--allow-dangerously-skip-permissions', '--permission-mode', 'plan', issuePrompt({ ...issue, comments: [] }, 'plan', context)].map(shellQuote).join(' ')}`]);
 });
 
 test('both agents receive additional context in normal mode without enabling plan mode', (t) => {
@@ -303,7 +303,7 @@ test('modal selects agent and plan mode and preserves pasted multiline context',
   const input = `ENG-1234\t\x1b[C\t \t\x1b[200~${context}\x1b[201~\t\r`;
   const result = f.run(['form'], { HERDR_TEST_TTY: '1' }, input);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--permission-mode', 'plan', issuePrompt({ ...issue, comments: [] }, 'plan', context)].map(shellQuote).join(' ')}`]);
+  assert.deepEqual(f.calls().at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['claude', '--allow-dangerously-skip-permissions', '--permission-mode', 'plan', issuePrompt({ ...issue, comments: [] }, 'plan', context)].map(shellQuote).join(' ')}`]);
 });
 
 test('modal retains fields when navigating backward and supports editing context', (t) => {
