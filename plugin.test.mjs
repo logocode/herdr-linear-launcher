@@ -118,8 +118,13 @@ test('both launch modes require ready PR publication after verified implementati
     assert.match(prompt, /ready for review, not as a draft/);
     assert.match(prompt, /already has a draft PR, mark it ready for review/);
     assert.match(prompt, /unless the user explicitly limits the task/);
+    assert.match(prompt, /until CI passes and Codex review finishes with a thumbs-up for the latest PR head commit/);
+    assert.match(prompt, /thumbs-up from an earlier commit do not satisfy this gate/);
+    assert.match(prompt, /fix valid issues within the task scope, rerun verification, and push the fixes/);
+    assert.match(prompt, /After every push, wait for CI and a fresh Codex review of that new head/);
+    assert.match(prompt, /missing checks or a missing review are not a pass/);
     assert.match(prompt, /Do not merge the PR/);
-    assert.match(prompt, /blocked, report the blocker and do not claim completion/);
+    assert.match(prompt, /report the specific blocker and do not claim completion/);
     assert.match(prompt, /only after the user approves implementation/);
   }
   assert.match(issuePrompt({ ...issue, comments: [] }, 'plan'), /Do not implement changes or publish a PR until the user approves the plan/);
