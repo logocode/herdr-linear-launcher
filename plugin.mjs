@@ -139,7 +139,7 @@ export function shellQuote(value) {
 }
 
 function codexCommand(cwd) {
-  return ['codex', '-C', cwd, '-c', `projects={${JSON.stringify(cwd)}={trust_level="trusted"}}`];
+  return ['codex', '--dangerously-bypass-approvals-and-sandbox', '-C', cwd, '-c', `projects={${JSON.stringify(cwd)}={trust_level="trusted"}}`];
 }
 
 function worktrees(cwd) {
@@ -181,7 +181,7 @@ async function launchIssue(reference, agent = 'codex', mode = 'normal', addition
   const pane = created.result?.root_pane?.pane_id;
   const path = created.result?.worktree?.path;
   if (!created.result?.workspace?.workspace_id || !pane || !path) throw new Error('Herdr did not return the created workspace and pane.');
-  const command = agent === 'codex' ? codexCommand(path) : ['claude'];
+  const command = agent === 'codex' ? codexCommand(path) : ['claude', mode === 'plan' ? '--allow-dangerously-skip-permissions' : '--dangerously-skip-permissions'];
   const prompt = issuePrompt(issue, mode, additionalContext);
   if (agent === 'codex' && mode === 'plan') {
     // CLI positional prompts do not parse /plan. Submit it once Codex is ready.
