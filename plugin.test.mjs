@@ -22,10 +22,10 @@ function fixture(t, options = {}) {
   const config = join(root, 'config');
   mkdirSync(repo);
   mkdirSync(config);
-  execFileSync('git', ['init', '-q', '-b', 'develop', repo]);
+  execFileSync('git', ['init', '-q', '-b', 'main', repo]);
   execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'Test']);
   execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', repo]);
-  execFileSync('git', ['-C', repo, 'update-ref', 'refs/remotes/origin/develop', 'HEAD']);
+  execFileSync('git', ['-C', repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD']);
   const log = join(root, 'herdr.jsonl');
   const binary = join(root, 'herdr');
   writeFileSync(binary, `#!${process.execPath}\nimport('node:fs').then(fs => {
@@ -110,6 +110,21 @@ test('prompt contains issue details and comment context without terminal control
   assert.match(prompt, /herdr-setup-status/);
 });
 
+test('both launch modes require ready PR publication after verified implementation', () => {
+  for (const mode of ['normal', 'plan']) {
+    const prompt = issuePrompt({ ...issue, comments: [] }, mode);
+    assert.match(prompt, /verification passes, commit the task changes, push the task branch/);
+    assert.match(prompt, /automatically create or update its PR against main/);
+    assert.match(prompt, /ready for review, not as a draft/);
+    assert.match(prompt, /already has a draft PR, mark it ready for review/);
+    assert.match(prompt, /unless the user explicitly limits the task/);
+    assert.match(prompt, /Do not merge the PR/);
+    assert.match(prompt, /blocked, report the blocker and do not claim completion/);
+    assert.match(prompt, /only after the user approves implementation/);
+  }
+  assert.match(issuePrompt({ ...issue, comments: [] }, 'plan'), /Do not implement changes or publish a PR until the user approves the plan/);
+});
+
 test('shell quoting delivers the exact initial prompt without executing issue text', (t) => {
   const f = fixture(t);
   const marker = join(f.root, 'must-not-exist');
@@ -129,7 +144,7 @@ test('launch creates a background worktree and immediately starts Codex with the
   assert.equal(result.status, 0, result.stderr);
   const calls = f.calls();
   const create = calls.find((args) => args[0] === 'worktree' && args[1] === 'create');
-  assert.deepEqual(create, ['worktree', 'create', '--cwd', f.repo, '--branch', 'linear/eng-1234-fix-domain-validation', '--base', 'origin/develop', '--label', 'Fix "domain" validation', '--no-focus']);
+  assert.deepEqual(create, ['worktree', 'create', '--cwd', f.repo, '--branch', 'linear/eng-1234-fix-domain-validation', '--base', 'origin/main', '--label', 'Fix "domain" validation', '--no-focus']);
   assert.deepEqual(calls.at(-1), ['pane', 'run', 'w2:p1', `cd ${shellQuote(f.repo)} && ${['codex', '-C', f.repo, '-c', `projects={${JSON.stringify(f.repo)}={trust_level="trusted"}}`, issuePrompt({ ...issue, title: 'Fix "domain" validation', comments: [] })].map(shellQuote).join(' ')}`]);
   assert.equal(calls.some((args) => args.includes('--focus') || args.includes('focus')), false);
 });
@@ -209,7 +224,7 @@ test('Linear setup callback no longer needs to fetch the issue', (t) => {
 test('plan prompt asks for approval before implementation and includes user context', () => {
   const prompt = issuePrompt({ ...issue, comments: [] }, 'plan', 'Focus on the API.\nKeep the UI unchanged.');
   assert.match(prompt, /^Plan the Linear issue/);
-  assert.match(prompt, /Do not implement changes until the user approves/);
+  assert.match(prompt, /Do not implement changes or publish a PR until the user approves/);
   assert.doesNotMatch(prompt, /Start inspecting and editing|run appropriate verification/);
   assert.match(prompt, /## Additional context from the user\nFocus on the API.\nKeep the UI unchanged\.$/);
   assert.doesNotMatch(issuePrompt({ ...issue, comments: [] }, 'normal', '  '), /Additional context/);
